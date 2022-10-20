@@ -3,15 +3,21 @@ package example
 import cats.MonadThrow
 import example.Client.ClientError.{DecodeError, ResponseError}
 import example.definition.ErrorResponse
+import example.domain.{AccountId, Money}
+import example.router.{Accounts, Operations}
 import sttp.client3.SttpBackend
 import sttp.model.Uri
 import sttp.tapir.client.sttp.SttpClientInterpreter
 import sttp.tapir.{DecodeResult, PublicEndpoint}
+import cats.implicits._
+import example.definition.Request.TransferRequest
 
 import scala.util.control.NoStackTrace
 
 trait Client[F[_]] {
-  def dummy: F[Unit]
+  def createAccount: F[AccountId]
+  def getBalance(id: AccountId): F[Money]
+  def transfer(from: AccountId, to: AccountId, amount: Money): F[Money]
 }
 
 object Client {
@@ -37,9 +43,16 @@ object Client {
           }
       }
 
-    override def dummy: F[Unit] = {
-      partialRequest(???)
-      handleResponse(???)
-    }
+    override def createAccount: F[AccountId] = partialRequest(Accounts.createAccount)(())
+      .flatMap(handleResponse(_))
+      .map(_.id)
+
+    override def getBalance(accountId: AccountId): F[Money] = partialRequest(Accounts.accountBalance)(accountId)
+      .flatMap(handleResponse(_))
+      .map(_.balance)
+
+    override def transfer(from: AccountId, to: AccountId, amount: Money): F[Money] = partialRequest(Operations.transferMoney)(
+      TransferRequest(from, to, amount)
+    ).flatMap(handleResponse(_)).map(_.balance)
   }
 }

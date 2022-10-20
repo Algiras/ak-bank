@@ -2,8 +2,8 @@ import cats.effect.{IO, Resource}
 import cats.implicits._
 import ciris.Secret
 import com.comcast.ip4s.{Host, Port}
-import doobie.hikari.HikariTransactor
 import eu.timepit.refined.auto._
+import example.api.Bank
 import example.config.{Config, Database}
 import org.http4s
 import sttp.client3.asynchttpclient.cats.AsyncHttpClientCatsBackend
@@ -39,5 +39,5 @@ package object example {
     httpBE <- AsyncHttpClientCatsBackend.resource[IO]()
   } yield Client.make(uri, httpBE)
 
-  val databaseResource: Resource[IO, HikariTransactor[IO]] = App.setupDB[IO](testConfig)
+  val bankResource: Resource[IO, Bank[IO]] = App.setupBank[IO](testConfig)
 }

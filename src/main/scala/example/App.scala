@@ -2,11 +2,14 @@ package example
 
 import cats.effect.kernel.Async
 import cats.effect.{ExitCode, IO, IOApp, Resource}
+import cats.implicits.toSemigroupKOps
 import org.http4s.ember.server.EmberServerBuilder
-import org.http4s.HttpRoutes
+import org.http4s.{HttpRoutes, server}
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import example.config._
 import example.database.{DbSessionPool, Migration}
+import example.router.{Accounts, Operations}
+import example.service.H2Bank
 import sttp.apispec.openapi.OpenAPI
 import sttp.apispec.openapi.circe.yaml._
 import sttp.tapir.docs.openapi.OpenAPIDocsInterpreter
@@ -15,25 +18,34 @@ import sttp.tapir.swagger.SwaggerUI
 
 object App extends IOApp {
   private def docs(app: App): OpenAPI = OpenAPIDocsInterpreter().toOpenAPI(
-    List.empty,
+    List(
+      Accounts.createAccount,
+      Accounts.accountBalance,
+      Operations.transferMoney
+    ),
     app.name.value,
     app.version.value
   )
 
-  def setupDB[F[_]: Async](config: Config) = for {
+  def setupBank[F[_]: Async](config: Config) = for {
     _          <- Resource.liftK(Migration[F](config.database))
     transactor <- DbSessionPool.make[F](config.database)
-  } yield transactor
+  } yield H2Bank.make(transactor)
 
-  def runServer[F[_]: Async](config: Config, openAPI: Option[OpenAPI] = None) =
+  def runServer[F[_]: Async](config: Config, openAPI: Option[OpenAPI] = None): Resource[F, server.Server] =
     for {
-      _ <- setupDB(config)
+      bank <- setupBank(config)
       interpreter = Http4sServerInterpreter[F]()
+      accounts    = new Accounts[F](bank)
+      operations  = new Operations[F](bank)
       httpApp = (
-        (openAPI match {
-          case Some(api) => interpreter.toRoutes(SwaggerUI[F](api.toYaml))
-          case None      => HttpRoutes.empty[F]
-        })
+        interpreter.toRoutes(accounts.createAccountRoute) <+>
+          interpreter.toRoutes(accounts.getAccountBalance) <+>
+          interpreter.toRoutes(operations.transferMoneyRoute) <+>
+          (openAPI match {
+            case Some(api) => interpreter.toRoutes(SwaggerUI[F](api.toYaml))
+            case None      => HttpRoutes.empty[F]
+          })
       ).orNotFound
       server <- EmberServerBuilder
         .default[F]
